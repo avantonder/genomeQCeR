@@ -1,0 +1,60 @@
+---
+title: "genomeQCeR"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(flexdashboard)
+library(tidyverse)
+library(RColorBrewer)
+library(reshape2)
+
+brackenQC <- read_tsv("ENA_MAC_bracken_combined.txt")
+unclassified <- read_table2("ENA_MAC_kraken_unclassified.txt", col_names = FALSE)
+
+unclassifiedConvert <- data.frame(matrix(ncol = 1 + length(unclassified$X1), nrow = 0))
+colnames(unclassifiedConvert) <- c("name", unclassified$X1)
+unclassifiedConvert[1,] <- c("unclassified", as.numeric(unclassified$X3))
+
+brakenQCfilt <- brackenQC %>% 
+  select(name, ends_with("_num")) %>% 
+  rename_all(gsub, pattern = '\\_num', replacement = '')
+
+brakenQCfiltNum <- brakenQCfilt %>%
+  rbind(unclassifiedConvert) %>% 
+  select(-name) %>%
+  mutate_if(is.character, as.numeric) %>%
+  mutate(name = c(brakenQCfilt$name, "unclassified")) %>% 
+  select(name, everything())
+
+for (i in colnames(brakenQCfiltNum[2:ncol(brakenQCfiltNum)])){
+  brakenQCfiltNum[sprintf("%s_freq", i)] <- brakenQCfiltNum[i] / colSums(brakenQCfiltNum[i]) * 100
+}
+
+brakenQCfiltFreq <- brakenQCfiltNum %>% 
+  select(name, ends_with("_freq"))
+
+brakenQCfiltSort <- brakenQCfiltFreq %>% 
+  select(name, ends_with("_freq")) %>%
+  mutate(Max_comp  = do.call(pmax, (brakenQCfiltFreq[,2:ncol(brakenQCfiltFreq)]))) %>% 
+  filter(Max_comp > 10) %>% 
+  rename_all(gsub, pattern = '\\_freq', replacement = '') %>% 
+  select(-Max_comp)
+  
+brakenQCfiltSort[nrow(brakenQCfiltSort) + 1,] <- c(NA, as.numeric(100 - colSums(brakenQCfiltSort[,2:ncol(brakenQCfiltSort)])))
+brakenQCfiltSort$name[nrow(brakenQCfiltSort)] <- "other"
+
+brakenQCplot <- brakenQCfiltSort %>% 
+  gather(Sample, Reads, 2:ncol(brakenQCfiltSort))
+
+barcol2<-colorRampPalette(brewer.pal(12,"Paired"))
+colourcount = nrow(brakenQCfiltSort)
+coltest <- barcol2(colourcount)
+
+ggplot(data = brakenQCplot) + geom_bar(aes(y = Reads, x = Sample, fill = name), stat = "identity") + theme_bw() + theme(axis.text.x = element_text(angle = 90, hjust = 1)) + xlab("Sample") + ylab("Assigned reads (%)") + theme(axis.title=element_text(size=25,face="bold")) + theme(axis.text.x = element_text(size = 20)) + theme(axis.text.y = element_text(size = 30)) + scale_fill_manual("Identified species",values=coltest) + theme(legend.title = element_text(size=25, face="bold")) + theme(legend.text = element_text(size=20))
+```
+
